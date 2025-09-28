@@ -10,6 +10,11 @@ export default class TuyaService {
   #cachedToken = null;
   #tokenExpiry = 0;
   
+  // Cache intelligent d'état du device
+  #deviceStateCache = null;
+  #stateCacheExpiry = 0;
+  #lastRequestTime = 0;
+  
   // Constantes de classe
   static DATA_CENTERS = {
     US: 'https://openapi.tuyaus.com',
@@ -19,6 +24,8 @@ export default class TuyaService {
   };
   
   static TOKEN_REFRESH_BUFFER = 600; // 10 minutes en secondes
+  static STATE_CACHE_DURATION = 30; // 30 secondes de cache d'état
+  static MIN_REQUEST_INTERVAL = 500; // 500ms minimum entre requêtes (debouncing)
   
   constructor() {
     this.ACCESS_ID = process.env.TUYA_ACCESS_ID;
@@ -149,20 +156,95 @@ export default class TuyaService {
   }
 
   /**
-   * Obtenir le statut de l'appareil
+   * Obtenir le statut de l'appareil avec cache intelligent
    */
-  async getDeviceStatus() {
+  async getDeviceStatus(forceRefresh = false) {
+    const now = Date.now();
+    
+    // Utiliser le cache si valide et pas de rafraîchissement forcé
+    if (!forceRefresh && this.#deviceStateCache && now < this.#stateCacheExpiry) {
+      console.log('📋 Using cached device state');
+      return this.#deviceStateCache;
+    }
+    
+    console.log('🔄 Refreshing device state from API');
     const result = await this.request('GET', `/v1.0/devices/${this.DEVICE_ID}/status`);
-    return result.result || [];
+    const deviceState = result.result || [];
+    
+    // Mettre à jour le cache
+    this.#deviceStateCache = deviceState;
+    this.#stateCacheExpiry = now + (TuyaService.STATE_CACHE_DURATION * 1000);
+    
+    return deviceState;
   }
 
   /**
-   * Envoyer des commandes à l'appareil
+   * Vérifier si une commande changerait l'état actuel
    */
-  async sendCommands(commands) {
+  async #isCommandNecessary(commands) {
+    try {
+      const currentState = await this.getDeviceStatus();
+      const stateMap = new Map(currentState.map(item => [item.code, item.value]));
+      
+      for (const command of commands) {
+        const currentValue = stateMap.get(command.code);
+        
+        // Cas spéciaux de comparaison
+        if (command.code === 'colour_data') {
+          const currentColor = typeof currentValue === 'string' ? JSON.parse(currentValue) : currentValue;
+          const newColor = typeof command.value === 'string' ? JSON.parse(command.value) : command.value;
+          
+          if (JSON.stringify(currentColor) !== JSON.stringify(newColor)) {
+            return true; // Changement nécessaire
+          }
+        } else if (currentValue !== command.value) {
+          return true; // Changement nécessaire
+        }
+      }
+      
+      console.log('⏭️ Command skipped - device already in requested state');
+      return false; // Aucun changement nécessaire
+    } catch (error) {
+      console.log('⚠️ Could not verify current state, sending command anyway');
+      return true; // En cas d'erreur, envoyer quand même
+    }
+  }
+  
+  /**
+   * Envoyer des commandes à l'appareil avec optimisations
+   */
+  async sendCommands(commands, options = {}) {
+    const { skipOptimization = false, debounce = true } = options;
+    const now = Date.now();
+    
+    // Debouncing - éviter les requêtes trop fréquentes
+    if (debounce && (now - this.#lastRequestTime) < TuyaService.MIN_REQUEST_INTERVAL) {
+      const waitTime = TuyaService.MIN_REQUEST_INTERVAL - (now - this.#lastRequestTime);
+      console.log(`⏳ Debouncing request, waiting ${waitTime}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    // Vérifier si la commande est nécessaire (sauf si explicitement désactivé)
+    if (!skipOptimization && !(await this.#isCommandNecessary(commands))) {
+      // Retourner un succès simulé si aucun changement n'est nécessaire
+      return {
+        success: true,
+        result: true,
+        optimized: true,
+        message: 'No changes needed - device already in requested state'
+      };
+    }
+    
     const data = { commands };
     console.log('🚀 Sending commands:', data);
+    
+    this.#lastRequestTime = Date.now();
     const result = await this.request('POST', `/v1.0/devices/${this.DEVICE_ID}/commands`, data);
+    
+    // Invalider le cache après un changement d'état
+    this.#deviceStateCache = null;
+    this.#stateCacheExpiry = 0;
+    
     return result;
   }
 
@@ -182,13 +264,56 @@ export default class TuyaService {
   }
 
   /**
+   * Obtenir la valeur actuelle d'un attribut spécifique
+   */
+  async getCurrentValue(attributeCode) {
+    const state = await this.getDeviceStatus();
+    const attribute = state.find(item => item.code === attributeCode);
+    return attribute ? attribute.value : null;
+  }
+  
+  /**
+   * Vérifier si l'appareil est en mode blanc
+   */
+  async isInWhiteMode() {
+    const workMode = await this.getCurrentValue('work_mode');
+    return workMode === 'white';
+  }
+  
+  /**
+   * Vérifier si l'appareil est allumé
+   */
+  async isLightOn() {
+    const switchState = await this.getCurrentValue('switch_led');
+    return switchState === true;
+  }
+  
+  /**
+   * Obtenir la luminosité actuelle
+   */
+  async getCurrentBrightness() {
+    return await this.getCurrentValue('bright_value');
+  }
+  
+  /**
    * Obtenir les informations de configuration (pour debug)
    */
   getConfig() {
     return {
       device_id: this.DEVICE_ID,
       base_url: this.BASE_URL,
-      configured: this.isConfigured()
+      configured: this.isConfigured(),
+      cache_active: this.#deviceStateCache !== null,
+      cache_expires: new Date(this.#stateCacheExpiry).toISOString()
     };
+  }
+  
+  /**
+   * Vider le cache d'état (utile pour debug)
+   */
+  clearStateCache() {
+    this.#deviceStateCache = null;
+    this.#stateCacheExpiry = 0;
+    console.log('🧹 Device state cache cleared');
   }
 }

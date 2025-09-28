@@ -67,6 +67,18 @@ class LightService {
       body: JSON.stringify({ work_mode: 'white' }),
     });
   }
+
+  // Obtenir la configuration du device (pour debug)
+  async getDeviceConfig(): Promise<any> {
+    return this.request<any>('/api/light/device/config');
+  }
+
+  // Vider le cache (pour debug)
+  async clearCache(): Promise<ApiResponse<boolean>> {
+    return this.request<ApiResponse<boolean>>('/api/light/cache/clear', {
+      method: 'POST',
+    });
+  }
 }
 
 export default new LightService();

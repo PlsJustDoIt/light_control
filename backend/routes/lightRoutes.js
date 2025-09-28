@@ -19,4 +19,16 @@ router.post('/white', bindController(lightController, 'setWhiteMode'));
 // Route pour les informations de l'appareil
 router.get('/device/info', bindController(lightController, 'getDeviceInfo'));
 
+// Routes utilitaires pour les optimisations
+router.post('/cache/clear', (req, res) => {
+  const lightController = new LightController();
+  lightController.clearCache();
+  res.json({ success: true, message: 'Cache cleared' });
+});
+
+router.get('/device/config', (req, res) => {
+  const lightController = new LightController();
+  res.json(lightController.getServiceConfig());
+});
+
 export default router;

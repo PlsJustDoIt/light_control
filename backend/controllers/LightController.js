@@ -64,6 +64,18 @@ export default class LightController {
         value: switch_led
       }];
 
+      // Vérification intelligente : même état ?
+      const currentState = await this.#tuyaService.isLightOn();
+      if (currentState === switch_led) {
+        const action = switch_led ? 'on' : 'off';
+        return res.json({
+          success: true,
+          result: true,
+          optimized: true,
+          message: `Device is already ${action}`
+        });
+      }
+      
       const result = await this.#tuyaService.sendCommands(commands);
       res.json(result);
     } catch (error) {
@@ -90,6 +102,17 @@ export default class LightController {
         value: bright_value
       }];
 
+      // Vérification intelligente : même luminosité ?
+      const currentBrightness = await this.#tuyaService.getCurrentBrightness();
+      if (currentBrightness === bright_value) {
+        return res.json({
+          success: true,
+          result: true,
+          optimized: true,
+          message: `Device brightness is already set to ${bright_value}`
+        });
+      }
+      
       const result = await this.#tuyaService.sendCommands(commands);
       res.json(result);
     } catch (error) {
@@ -146,10 +169,20 @@ export default class LightController {
   }
 
   /**
-   * Passer en mode blanc
+   * Passer en mode blanc (avec validation intelligente)
    */
   async setWhiteMode(req, res) {
     try {
+      // Vérification intelligente : déjà en mode blanc ?
+      if (await this.#tuyaService.isInWhiteMode()) {
+        return res.json({
+          success: true,
+          result: true,
+          optimized: true,
+          message: 'Device is already in white mode'
+        });
+      }
+      
       const commands = [{
         code: 'work_mode',
         value: 'white'
@@ -172,5 +205,20 @@ export default class LightController {
     } catch (error) {
       return this.#handleError(error, res, 'device info retrieval');
     }
+  }
+
+  /**
+   * Vider le cache (utile pour debug et tests)
+   */
+  clearCache() {
+    this.#tuyaService.clearStateCache();
+    return { success: true, message: 'Cache cleared successfully' };
+  }
+
+  /**
+   * Obtenir la configuration du service (pour debug)
+   */
+  getServiceConfig() {
+    return this.#tuyaService.getConfig();
   }
 }
