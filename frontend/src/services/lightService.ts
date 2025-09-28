@@ -1,7 +1,7 @@
 // Service pour communiquer avec le backend
 import type { ApiResponse, DeviceStatus } from '../types/light';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 class LightService {
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {

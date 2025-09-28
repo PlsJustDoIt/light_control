@@ -6,6 +6,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "build": "echo 'No build step required for ES modules'",
+    "deploy": "./deploy.sh",
+    "install-prod": "npm ci --omit=dev",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop light-control-backend",
+    "pm2:restart": "pm2 restart light-control-backend",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": ["tuya", "iot", "smart-light", "express", "es6"],
